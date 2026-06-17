@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react';
 import { useAppStore } from '@/store';
 import {
   Heart, Activity, Thermometer, Scale, Calendar, Syringe,
-  Pill, Stethoscope, User, Shield, AlertTriangle, SmilePlus, RefreshCw, Plus, Utensils, Cookie
+  Pill, Stethoscope, User, Shield, AlertTriangle, SmilePlus, RefreshCw, Plus, Utensils, Cookie, Baby, Check
 } from 'lucide-react';
-import type { Animal, HealthRecord } from '@/types';
+import type { Animal, HealthRecord, HealthTodo } from '@/types';
 import StatusBadge from '@/components/UI/StatusBadge';
 import Modal from '@/components/UI/Modal';
 import HealthRecordForm from './HealthRecordForm';
@@ -126,8 +126,104 @@ function FeedingTip({ record }: FeedingTipProps) {
   );
 }
 
+interface NewbornCardProps {
+  animal: Animal;
+  todos: HealthTodo[];
+  onToggleTodo: (id: string) => void;
+}
+
+function NewbornCard({ animal, todos, onToggleTodo }: NewbornCardProps) {
+  const fatherName = animal.pedigree?.fatherName;
+  const motherName = animal.pedigree?.motherName;
+
+  const formatAge = (age: number) => {
+    if (age < 0.1) {
+      const days = Math.max(1, Math.round(age * 365));
+      return `${days}天`;
+    }
+    if (age < 1) {
+      const months = Math.round(age * 12);
+      return `${months}个月`;
+    }
+    return `${age}岁`;
+  };
+
+  return (
+    <div className="bg-white rounded-xl p-4 border border-warm-200 shadow-sm hover:shadow-md transition-all">
+      <div className="flex items-start gap-3 mb-3">
+        <img src={animal.imageUrl} alt={animal.name} className="w-14 h-14 rounded-lg object-cover border-2 border-warm-200" />
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="font-semibold text-earth-900">{animal.name}</p>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-warm-100 text-warm-700">新生幼崽</span>
+          </div>
+          <p className="text-xs text-earth-500">{animal.speciesName} · {formatAge(animal.age)}</p>
+          {(fatherName || motherName) && (
+            <p className="text-xs text-earth-400 mt-0.5">
+              {motherName && `母亲：${motherName}`}
+              {motherName && fatherName && ' · '}
+              {fatherName && `父亲：${fatherName}`}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="space-y-2">
+        {todos.map((todo) => {
+          const isCompleted = todo.status === 'completed';
+          return (
+            <div
+              key={todo.id}
+              className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-colors ${
+                isCompleted
+                  ? 'bg-cream-50 border-cream-200'
+                  : 'bg-warm-50 border-warm-100 hover:border-warm-200'
+              }`}
+            >
+              <button
+                onClick={() => onToggleTodo(todo.id)}
+                className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                  isCompleted
+                    ? 'bg-forest-500 border-forest-500'
+                    : 'border-earth-300 hover:border-forest-400 bg-white'
+                }`}
+              >
+                {isCompleted && <Check className="w-3 h-3 text-white" />}
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${isCompleted ? 'text-earth-400 line-through' : 'text-earth-800'}`}>
+                  {todo.title}
+                </p>
+                <p className={`text-xs mt-0.5 ${isCompleted ? 'text-earth-300 line-through' : 'text-earth-500'}`}>
+                  {todo.description}
+                </p>
+                <div className="flex items-center gap-1 mt-1">
+                  <Calendar className={`w-3 h-3 ${isCompleted ? 'text-earth-300' : 'text-warm-500'}`} />
+                  <span className={`text-xs ${isCompleted ? 'text-earth-300' : 'text-earth-500'}`}>
+                    到期：{todo.dueDate}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {todos.length === 0 && (
+          <div className="text-xs text-earth-400 text-center py-2">暂无待办事项</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Health() {
-  const { animals, healthRecords, feedingPlans, addHealthRecord } = useAppStore();
+  const {
+    animals,
+    healthRecords,
+    feedingPlans,
+    addHealthRecord,
+    getNewbornAnimals,
+    getAnimalHealthTodos,
+    toggleHealthTodo,
+  } = useAppStore();
   const [recordFormOpen, setRecordFormOpen] = useState(false);
 
   const healthCounts = animals.reduce<Record<string, number>>((acc, a) => {
@@ -160,6 +256,22 @@ export default function Health() {
     });
     return map;
   }, [feedingPlans]);
+
+  const newbornAnimals = useMemo(() => {
+    return getNewbornAnimals();
+  }, [getNewbornAnimals, animals]);
+
+  const newbornTodosMap = useMemo(() => {
+    const map: Record<string, HealthTodo[]> = {};
+    newbornAnimals.forEach((animal) => {
+      map[animal.id] = getAnimalHealthTodos(animal.id);
+    });
+    return map;
+  }, [newbornAnimals, getAnimalHealthTodos]);
+
+  const handleToggleTodo = (todoId: string) => {
+    toggleHealthTodo(todoId, '管理员');
+  };
 
   const allDiagnoses = healthRecords.flatMap((r) =>
     r.diagnoses.map((d) => ({ ...d, animalName: r.animalName, veterinarian: r.veterinarian, checkupDate: r.checkupDate, recordId: r.id, overallStatus: r.overallStatus, diagnoses: r.diagnoses }))
@@ -229,6 +341,31 @@ export default function Health() {
           <div className="card p-8 text-center text-earth-500">
             <SmilePlus className="w-10 h-10 text-forest-400 mx-auto mb-2" />
             <p>所有动物状态良好，无异常情况</p>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <Baby className="w-5 h-5 text-warm-600" />
+          <h2 className="text-lg font-semibold text-earth-800">新生幼崽关注区</h2>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-warm-100 text-warm-700">{newbornAnimals.length} 只幼崽</span>
+        </div>
+        {newbornAnimals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {newbornAnimals.map((animal) => (
+              <NewbornCard
+                key={animal.id}
+                animal={animal}
+                todos={newbornTodosMap[animal.id] || []}
+                onToggleTodo={handleToggleTodo}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card p-8 text-center text-earth-500">
+            <Baby className="w-10 h-10 text-warm-400 mx-auto mb-2" />
+            <p>暂无新生幼崽，期待新生命的到来</p>
           </div>
         )}
       </section>

@@ -29,6 +29,8 @@ import type {
   Species,
   HealthStatus,
   Gender,
+  HealthTodo,
+  CareLog,
 } from '@/types';
 
 export interface TimelineItem {
@@ -98,6 +100,21 @@ const breedingTypeLabels: Record<string, string> = {
   estrus: '发情', mating: '交配', pregnancy: '怀孕', birth: '出生',
 };
 
+export interface EnrichmentActivityStats {
+  activity: EnrichmentActivity;
+  avgEffectiveness: number;
+  targetAnimalCount: number;
+  recentUsageCount: number;
+}
+
+export interface EnrichmentEffectivenessDetail {
+  activity: EnrichmentActivity;
+  targetAnimals: Animal[];
+  recentRecords: BehaviorRecord[];
+  stereotypicTrend: number[];
+  effectivenessScore: number;
+}
+
 interface AppState {
   animals: Animal[];
   feedFormulas: FeedFormula[];
@@ -110,6 +127,8 @@ interface AppState {
   enrichmentActivities: EnrichmentActivity[];
   educationSchedules: EducationSchedule[];
   visitorInteractions: VisitorInteraction[];
+  healthTodos: HealthTodo[];
+  careLogs: CareLog[];
   speciesList: Species[];
   dashboardStats: typeof mockDashboardStats;
   selectedAnimalId: string | null;
@@ -141,6 +160,29 @@ interface AppState {
   deleteVisitorInteraction: (id: string) => void;
   getWarnings: () => Warning[];
   getAnimalTimeline: (animalId: string) => TimelineItem[];
+  addHealthTodo: (todo: Omit<HealthTodo, 'id' | 'createdAt'>) => void;
+  updateHealthTodo: (id: string, data: Partial<HealthTodo>) => void;
+  toggleHealthTodo: (id: string, completedBy?: string) => void;
+  deleteHealthTodo: (id: string) => void;
+  getAnimalHealthTodos: (animalId: string) => HealthTodo[];
+  addCareLog: (log: Omit<CareLog, 'id'>) => void;
+  updateCareLog: (id: string, data: Partial<CareLog>) => void;
+  deleteCareLog: (id: string) => void;
+  getAnimalCareLogs: (animalId: string) => CareLog[];
+  getNewbornAnimals: () => Animal[];
+  getEnrichmentEffectiveness: (activityId: string) => {
+    activity: EnrichmentActivity;
+    targetAnimals: Animal[];
+    recentRecords: BehaviorRecord[];
+    stereotypicTrend: number[];
+    effectivenessScore: number;
+  } | null;
+  getEnrichmentActivitiesWithStats: () => Array<{
+    activity: EnrichmentActivity;
+    avgEffectiveness: number;
+    targetAnimalCount: number;
+    recentUsageCount: number;
+  }>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -155,6 +197,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   enrichmentActivities: loadFromStorage('enrichmentActivities', mockEnrichmentActivities),
   educationSchedules: loadFromStorage('educationSchedules', mockEducationSchedules),
   visitorInteractions: loadFromStorage('visitorInteractions', mockVisitorInteractions),
+  healthTodos: loadFromStorage('health_todos', []),
+  careLogs: loadFromStorage('care_logs', []),
   speciesList: mockSpeciesList,
   dashboardStats: mockDashboardStats,
   selectedAnimalId: null,
@@ -370,6 +414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       let updatedAnimals = state.animals;
       let updatedFeedingPlans = state.feedingPlans;
       let updatedHealthRecords = state.healthRecords;
+      let updatedHealthTodos = state.healthTodos;
 
       if (recordData.offspring && recordData.offspring.length > 0) {
         const mother = state.animals.find((a) => a.id === recordData.animalId);
@@ -397,6 +442,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             motherId: mother?.id, motherName: mother?.name,
             childrenIds: [],
           },
+          isNewborn: true,
         }));
 
         updatedAnimals = [...state.animals];
@@ -417,8 +463,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         if (recordData.breedingType === 'birth') {
           const birthDate = recordData.eventDate;
+          const birthDateObj = new Date(birthDate);
+          const threeDaysLater = new Date(birthDateObj.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
           const newPlans: FeedingPlan[] = [];
           const newHealthRecs: HealthRecord[] = [];
+          const newTodos: HealthTodo[] = [];
           for (const off of recordData.offspring) {
             newPlans.push({
               id: generateId('fp'),
@@ -436,20 +485,57 @@ export const useAppStore = create<AppState>((set, get) => ({
               bloodPressure: '待检测', diagnoses: [],
               vaccinations: [], overallStatus: '新生幼崽观察中',
             });
+            newTodos.push(
+              {
+                id: generateId('ht'),
+                animalId: off.id,
+                animalName: off.name,
+                type: 'assign_vet',
+                title: '分配专属兽医',
+                description: '为新生幼崽分配负责的兽医，建立健康档案',
+                dueDate: birthDate,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+              },
+              {
+                id: generateId('ht'),
+                animalId: off.id,
+                animalName: off.name,
+                type: 'first_checkup',
+                title: '首次体检',
+                description: '进行新生幼崽首次全面体检，检查生命体征',
+                dueDate: threeDaysLater,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+              },
+              {
+                id: generateId('ht'),
+                animalId: off.id,
+                animalName: off.name,
+                type: 'weigh_in',
+                title: '首次称重',
+                description: '记录新生幼崽出生体重，建立生长曲线基准',
+                dueDate: birthDate,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+              }
+            );
           }
           updatedFeedingPlans = [...state.feedingPlans, ...newPlans];
           updatedHealthRecords = [...state.healthRecords, ...newHealthRecs];
+          updatedHealthTodos = [...state.healthTodos, ...newTodos];
         }
       }
 
       const breedingRecords = [...state.breedingRecords, newRecord];
       saveToStorage('breedingRecords', breedingRecords);
       saveToStorage('animals', updatedAnimals);
+      saveToStorage('health_todos', updatedHealthTodos);
       if (recordData.breedingType === 'birth' && recordData.offspring) {
         saveToStorage('feedingPlans', updatedFeedingPlans);
         saveToStorage('healthRecords', updatedHealthRecords);
       }
-      return { breedingRecords, animals: updatedAnimals, feedingPlans: updatedFeedingPlans, healthRecords: updatedHealthRecords };
+      return { breedingRecords, animals: updatedAnimals, feedingPlans: updatedFeedingPlans, healthRecords: updatedHealthRecords, healthTodos: updatedHealthTodos };
     });
   },
 
@@ -749,5 +835,174 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return items;
+  },
+
+  addHealthTodo: (todoData) => {
+    const id = generateId('ht');
+    const newTodo: HealthTodo = {
+      ...todoData,
+      id,
+      createdAt: new Date().toISOString(),
+    } as HealthTodo;
+    set((state) => {
+      const healthTodos = [...state.healthTodos, newTodo];
+      saveToStorage('health_todos', healthTodos);
+      return { healthTodos };
+    });
+  },
+
+  updateHealthTodo: (id, data) => {
+    set((state) => {
+      const healthTodos = state.healthTodos.map((t) =>
+        t.id === id ? { ...t, ...data } : t
+      );
+      saveToStorage('health_todos', healthTodos);
+      return { healthTodos };
+    });
+  },
+
+  toggleHealthTodo: (id, completedBy) => {
+    set((state) => {
+      const healthTodos = state.healthTodos.map((t) => {
+        if (t.id !== id) return t;
+        const isCompleted = t.status === 'completed';
+        const newStatus: 'pending' | 'completed' = isCompleted ? 'pending' : 'completed';
+        return {
+          ...t,
+          status: newStatus,
+          completedAt: isCompleted ? undefined : new Date().toISOString(),
+          completedBy: isCompleted ? undefined : completedBy,
+        };
+      });
+      saveToStorage('health_todos', healthTodos);
+      return { healthTodos };
+    });
+  },
+
+  deleteHealthTodo: (id) => {
+    set((state) => {
+      const healthTodos = state.healthTodos.filter((t) => t.id !== id);
+      saveToStorage('health_todos', healthTodos);
+      return { healthTodos };
+    });
+  },
+
+  getAnimalHealthTodos: (animalId) => {
+    const state = get();
+    return state.healthTodos.filter((t) => t.animalId === animalId);
+  },
+
+  addCareLog: (logData) => {
+    const id = generateId('cl');
+    const newLog: CareLog = { ...logData, id } as CareLog;
+    set((state) => {
+      const careLogs = [...state.careLogs, newLog];
+      saveToStorage('care_logs', careLogs);
+      return { careLogs };
+    });
+  },
+
+  updateCareLog: (id, data) => {
+    set((state) => {
+      const careLogs = state.careLogs.map((l) =>
+        l.id === id ? { ...l, ...data } : l
+      );
+      saveToStorage('care_logs', careLogs);
+      return { careLogs };
+    });
+  },
+
+  deleteCareLog: (id) => {
+    set((state) => {
+      const careLogs = state.careLogs.filter((l) => l.id !== id);
+      saveToStorage('care_logs', careLogs);
+      return { careLogs };
+    });
+  },
+
+  getAnimalCareLogs: (animalId) => {
+    const state = get();
+    return state.careLogs
+      .filter((l) => l.animalId === animalId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  },
+
+  getNewbornAnimals: () => {
+    const state = get();
+    return state.animals.filter((a) => {
+      const isMarkedNewborn = a.isNewborn === true;
+      const isVeryYoung = a.age < 4 && a.age >= 0;
+      return isMarkedNewborn || isVeryYoung;
+    });
+  },
+
+  getEnrichmentActivitiesWithStats: () => {
+    const state = get();
+    const now = new Date('2026-06-18');
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+    return state.enrichmentActivities.map((activity) => {
+      const targetAnimalCount = state.animals.filter((a) =>
+        activity.targetSpecies.includes(a.speciesName)
+      ).length;
+
+      const recentUsageCount = state.behaviorRecords.filter((r) => {
+        if (!r.enrichmentActivity || !r.enrichmentActivity.includes(activity.name)) return false;
+        const recordDate = new Date(r.observationDate);
+        return recordDate >= fourteenDaysAgo;
+      }).length;
+
+      const avgEffectiveness = activity.effectiveness;
+
+      return {
+        activity,
+        avgEffectiveness,
+        targetAnimalCount,
+        recentUsageCount,
+      };
+    });
+  },
+
+  getEnrichmentEffectiveness: (activityId) => {
+    const state = get();
+    const activity = state.enrichmentActivities.find((a) => a.id === activityId);
+    if (!activity) return null;
+
+    const targetAnimals = state.animals.filter((a) =>
+      activity.targetSpecies.includes(a.speciesName)
+    );
+
+    const targetAnimalIds = targetAnimals.map((a) => a.id);
+    const recentRecords = state.behaviorRecords
+      .filter((r) => targetAnimalIds.includes(r.animalId))
+      .sort((a, b) => new Date(b.observationDate).getTime() - new Date(a.observationDate).getTime())
+      .slice(0, 5);
+
+    const today = new Date('2026-06-18');
+    const stereotypicTrend: number[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().slice(0, 10);
+      const count = state.behaviorRecords
+        .filter((r) =>
+          targetAnimalIds.includes(r.animalId) &&
+          r.behaviorType === 'stereotypic' &&
+          r.observationDate === dateStr
+        )
+        .reduce((sum, r) => sum + r.frequency, 0);
+      stereotypicTrend.push(count);
+    }
+
+    const avgTrend = stereotypicTrend.reduce((a, b) => a + b, 0) / 7;
+    const trendBonus = avgTrend === 0 ? 10 : avgTrend <= 3 ? 5 : avgTrend <= 6 ? 0 : -5;
+    const effectivenessScore = Math.min(100, Math.max(0, activity.effectiveness + trendBonus));
+
+    return {
+      activity,
+      targetAnimals,
+      recentRecords,
+      stereotypicTrend,
+      effectivenessScore,
+    };
   },
 }));

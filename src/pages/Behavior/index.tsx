@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore, type EnrichmentEffectivenessDetail } from '@/store';
 import type { BehaviorType, Severity } from '@/types';
-import { Leaf, Calendar, Star, User, Clock, Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, Sparkles, Plus, X, Minus } from 'lucide-react';
+import { Leaf, Calendar, Star, User, Clock, Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, Sparkles, Plus, X, Minus, ChevronDown, ChevronUp } from 'lucide-react';
 
 const bt: Record<BehaviorType, { l: string; c: string; b: string }> = { normal: { l: '正常', c: 'text-forest-700', b: 'bg-forest-500' }, stereotypic: { l: '刻板', c: 'text-warm-700', b: 'bg-warm-500' }, aggressive: { l: '攻击', c: 'text-red-700', b: 'bg-red-500' }, social: { l: '社交', c: 'text-blue-700', b: 'bg-blue-500' } };
 const sv: Record<Severity, { l: string; c: string }> = { mild: { l: '轻度', c: 'bg-yellow-100 text-yellow-700' }, moderate: { l: '中度', c: 'bg-warm-100 text-warm-700' }, severe: { l: '重度', c: 'bg-red-100 text-red-700' } };
@@ -22,15 +22,83 @@ function F({ label, children }: { label: string; children: React.ReactNode }) { 
 const ic = 'w-full px-3 py-2 rounded-lg border border-cream-300 bg-white text-sm text-forest-800 focus:outline-none focus:border-forest-400';
 const bc = 'px-4 py-2 rounded-lg text-sm font-medium transition-colors';
 
+function getEffectLabel(score: number) {
+  if (score >= 80) return { text: '优秀', cls: 'bg-forest-100 text-forest-700' };
+  if (score >= 60) return { text: '良好', cls: 'bg-warm-100 text-warm-700' };
+  return { text: '需改进', cls: 'bg-red-100 text-red-700' };
+}
+
+function EnrichmentCard({ stats, expanded, onToggle, detail }: { stats: any; expanded: boolean; onToggle: () => void; detail: EnrichmentEffectivenessDetail | null }) {
+  const eff = getEffectLabel(stats.avgEffectiveness);
+  const col = stats.avgEffectiveness >= 80 ? 'bg-forest-500' : stats.avgEffectiveness >= 60 ? 'bg-warm-500' : 'bg-red-500';
+  const st = Math.round((stats.avgEffectiveness / 100) * 5);
+  const avg = detail ? detail.stereotypicTrend.reduce((a, b) => a + b, 0) / 7 : 0;
+  const first3 = detail ? detail.stereotypicTrend.slice(0, 3).reduce((a, b) => a + b, 0) / 3 : 0;
+  const last3 = detail ? detail.stereotypicTrend.slice(4).reduce((a, b) => a + b, 0) / 3 : 0;
+  const changePct = first3 > 0 ? Math.round(((last3 - first3) / first3) * 100) : 0;
+  const trendDesc = changePct <= -20 ? `比前3天减少${Math.abs(changePct)}%，丰容效果显著` : changePct >= 20 ? '行为异常升高，建议调整丰容方式' : changePct < 0 ? `比前3天减少${Math.abs(changePct)}%，效果稳定` : changePct > 0 ? `比前3天增加${changePct}%，需持续观察` : '行为频次持平，效果稳定';
+  const mx = detail ? Math.max(1, ...detail.stereotypicTrend) : 1;
+  const healthLabel: Record<string, { t: string; c: string }> = { healthy: { t: '健康', c: 'bg-forest-100 text-forest-700' }, sick: { t: '患病', c: 'bg-red-100 text-red-700' }, quarantine: { t: '隔离', c: 'bg-yellow-100 text-yellow-700' }, recovering: { t: '恢复', c: 'bg-warm-100 text-warm-700' } };
+
+  return (
+    <div className="bg-cream-50 border border-cream-200 rounded-2xl shadow-card hover:shadow-card-hover transition-all overflow-hidden">
+      <div className="p-5 cursor-pointer" onClick={onToggle}>
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2"><div className="p-2 bg-forest-50 rounded-lg"><Leaf className="w-4 h-4 text-forest-600" /></div><div><h3 className="font-semibold text-forest-900">{stats.activity.name}</h3><span className="text-xs text-warm-700 bg-warm-100 px-2 py-0.5 rounded-full">{stats.activity.type}</span></div></div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5">{[1, 2, 3, 4, 5].map(i => <Star key={i} size={14} className={i <= st ? 'text-warm-500 fill-warm-500' : 'text-cream-300'} />)}</div>
+            {expanded ? <ChevronUp size={18} className="text-earth-500" /> : <ChevronDown size={18} className="text-earth-500" />}
+          </div>
+        </div>
+        <p className="text-sm text-earth-600 mb-3 line-clamp-1">{stats.activity.description}</p>
+        <div className="flex flex-wrap gap-1.5 mb-3">{stats.activity.targetSpecies.map((s: string) => <span key={s} className="text-xs bg-forest-100 text-forest-700 px-2 py-0.5 rounded-full">{s}</span>)}</div>
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <div className="text-center"><p className="text-xs text-earth-500 mb-0.5">目标动物</p><p className="text-sm font-semibold text-forest-800">{stats.targetAnimalCount}只</p></div>
+          <div className="text-center"><p className="text-xs text-earth-500 mb-0.5">近14天使用</p><p className="text-sm font-semibold text-forest-800">{stats.recentUsageCount}次</p></div>
+          <div className="text-center"><p className="text-xs text-earth-500 mb-0.5">效果评价</p><span className={`text-xs px-2 py-0.5 rounded-full ${eff.cls} font-medium`}>{eff.text}</span></div>
+        </div>
+        <div className="flex items-center gap-2"><div className="flex-1 h-2 bg-cream-200 rounded-full overflow-hidden"><div className={`h-full ${col} rounded-full transition-all`} style={{ width: `${stats.avgEffectiveness}%` }} /></div><span className="text-sm font-medium text-forest-800 w-10 text-right">{stats.avgEffectiveness}分</span></div>
+      </div>
+      <div className={`grid transition-all duration-300 ease-in-out ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+        <div className="overflow-hidden">
+          <div className="p-5 pt-0 border-t border-cream-200 space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-forest-800 mb-2">目标物种动物列表</p>
+              <div className="flex flex-wrap gap-2">
+                {detail?.targetAnimals.map(a => <div key={a.id} className="flex items-center gap-2 bg-white border border-cream-200 rounded-lg px-2 py-1.5"><img src={a.imageUrl} alt={a.name} className="w-7 h-7 rounded-full object-cover" /><span className="text-sm text-forest-800 font-medium">{a.name}</span><span className={`text-[10px] px-1.5 py-0.5 rounded-full ${healthLabel[a.healthStatus].c}`}>{healthLabel[a.healthStatus].t}</span></div>)}
+                {(!detail || detail.targetAnimals.length === 0) && <p className="text-sm text-earth-500">暂无目标动物</p>}
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-forest-800 mb-2">最近7天刻板行为趋势</p>
+              <div className="flex items-end gap-1 h-20 mb-1">{detail?.stereotypicTrend.map((v, i) => <div key={i} className="flex-1 flex flex-col items-center gap-1"><div className={`w-full rounded-t bg-warm-400`} style={{ height: `${(v / mx) * 100}%`, minHeight: v > 0 ? '4px' : '2px' }} /><span className="text-[10px] text-earth-400">{d7[i].slice(3)}</span></div>)}</div>
+              <p className={`text-xs mt-1 ${changePct < -10 ? 'text-forest-600' : changePct > 10 ? 'text-red-600' : 'text-earth-600'}`}>{trendDesc}（近7天平均{avg.toFixed(1)}次）</p>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-forest-800 mb-2">关联行为观察记录</p>
+              <div className="space-y-2">
+                {detail?.recentRecords.map(r => { const ti = bt[r.behaviorType]; return <div key={r.id} className="bg-white border border-cream-200 rounded-lg p-2.5"><div className="flex items-center gap-2 mb-1"><span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${ti.b} text-white`}>{ti.l}</span><span className="text-sm font-medium text-forest-800">{r.behaviorName}</span></div><div className="flex items-center gap-3 text-xs text-earth-500"><span>{r.animalName}</span><span>{r.observationDate}</span><span>{r.frequency}次</span><span>{r.durationMinutes}分钟</span></div></div>; })}
+                {(!detail || detail.recentRecords.length === 0) && <p className="text-sm text-earth-500">暂无关联记录</p>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Behavior() {
-  const { enrichmentActivities, behaviorRecords, animals, getWarnings, addBehaviorRecord, addEnrichmentActivity } = useAppStore();
+  const { enrichmentActivities, behaviorRecords, animals, getWarnings, addBehaviorRecord, addEnrichmentActivity, getEnrichmentActivitiesWithStats, getEnrichmentEffectiveness } = useAppStore();
   const aw = getWarnings();
+  const enrichmentStats = getEnrichmentActivitiesWithStats();
   const bw = aw.filter(w => w.type === 'stereotypic_high').map(w => {
     const c7 = behaviorRecords.filter(r => r.animalId === w.relatedId && r.behaviorType === 'stereotypic').reduce((s, r) => s + r.frequency, 0);
     return { id: w.relatedId || '', name: w.relatedName || '', level: c7 >= 15 ? 'high' : c7 >= 8 ? 'medium' : 'normal', c7, trend: 'flat' as 'up' | 'down' | 'flat', msg: w.message };
   });
   const [mt, setMt] = useState<string | null>(null);
   const [fd, setFd] = useState<any>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function om(t: string) {
     setMt(t);
@@ -51,9 +119,17 @@ export default function Behavior() {
     setMt(null);
   }
   function t7(aid: string) { const m: Record<string, number> = {}; d7.forEach(d => m[d] = 0); behaviorRecords.filter(r => r.animalId === aid && r.behaviorType === 'stereotypic').forEach(r => { const d = r.observationDate.slice(5); if (m[d] !== undefined) m[d] += r.frequency; }); return d7.map(d => m[d]); }
+  function toggleExpand(id: string) { setExpandedId(expandedId === id ? null : id); }
 
   return <div className="space-y-6">
     <div><h1 className="text-2xl font-semibold text-forest-800">行为观察</h1><p className="text-sm text-earth-600 mt-1">丰容设施管理与动物行为监测</p></div>
+
+    <section>
+      <div className="flex items-center gap-2 mb-4"><TrendingUp className="w-5 h-5 text-forest-600" /><h2 className="text-lg font-semibold text-forest-800">丰容活动效果看板</h2></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {enrichmentStats.map(s => <EnrichmentCard key={s.activity.id} stats={s} expanded={expandedId === s.activity.id} onToggle={() => toggleExpand(s.activity.id)} detail={expandedId === s.activity.id ? getEnrichmentEffectiveness(s.activity.id) : null} />)}
+      </div>
+    </section>
 
     <div className="bg-gradient-to-r from-red-50 via-warm-50 to-cream-50 border border-warm-200 rounded-2xl p-5 shadow-card">
       <div className="flex items-center gap-2 mb-4"><AlertTriangle className="text-warm-600" size={20} /><h2 className="text-lg font-semibold text-forest-800">刻板行为预警</h2><div className="flex-1" /><button onClick={() => om('rec')} className={`${bc} bg-forest-500 text-white`}><Plus size={14} className="inline mr-1" />添加观察记录</button><button onClick={() => om('enr')} className={`${bc} bg-warm-500 text-white`}><Plus size={14} className="inline mr-1" />丰容活动记录</button></div>

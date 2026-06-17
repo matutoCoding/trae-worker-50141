@@ -3,6 +3,9 @@ export type Gender = 'male' | 'female';
 export type BehaviorType = 'normal' | 'stereotypic' | 'aggressive' | 'social';
 export type Severity = 'mild' | 'moderate' | 'severe';
 export type BreedingType = 'estrus' | 'mating' | 'pregnancy' | 'birth';
+export type HealthTodoType = 'assign_vet' | 'first_checkup' | 'weigh_in' | 'vaccinate';
+export type TodoStatus = 'pending' | 'completed';
+export type CareLogType = 'feeding' | 'weighing' | 'temperature' | 'observation';
 
 export interface Animal {
   id: string;
@@ -34,6 +37,7 @@ export interface Animal {
     status: 'active' | 'completed';
     notes: string;
   };
+  isNewborn?: boolean;
 }
 
 export interface Species {
@@ -215,4 +219,31 @@ export interface VisitorInteraction {
   duration: number;
   feedbackScore: number;
   notes: string;
+}
+
+export interface HealthTodo {
+  id: string;
+  animalId: string;
+  animalName: string;
+  type: HealthTodoType;
+  title: string;
+  description: string;
+  dueDate: string;
+  status: TodoStatus;
+  completedAt?: string;
+  completedBy?: string;
+  createdAt: string;
+}
+
+export interface CareLog {
+  id: string;
+  animalId: string;
+  animalName: string;
+  date: string;
+  feedingAmount: number;
+  feedingFrequency: number;
+  weight: number;
+  temperature?: number;
+  notes: string;
+  recordedBy: string;
 }

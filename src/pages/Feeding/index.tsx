@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import { useAppStore } from '@/store';
 import {
   Cookie, Clock, Star, CheckCircle2, AlertCircle, XCircle,
-  Scale, Leaf, ChefHat, Calendar, Utensils, User, Plus, Bell, Stethoscope, ArrowRight
+  Scale, Leaf, ChefHat, Calendar, Utensils, User, Plus, Bell, Stethoscope, ArrowRight,
+  Baby, Minus, Thermometer, TrendingUp, TrendingDown, Minus as MinusIcon, Save
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { FeedFormula, FeedingPlan, FeedingRecord, HealthStatus, Animal } from '@/types';
+import type { FeedFormula, FeedingPlan, FeedingRecord, HealthStatus, Animal, CareLog } from '@/types';
 import StatusBadge from '@/components/UI/StatusBadge';
 import Modal from '@/components/UI/Modal';
 import FeedingRecordForm from './FeedingRecordForm';
@@ -121,10 +122,221 @@ function AttentionCard({ animal, lastRecord, plans, onJump }: AttentionCardProps
   );
 }
 
+interface NewbornCardProps {
+  animal: Animal;
+  careLogs: CareLog[];
+}
+
+function NewbornCard({ animal, careLogs }: NewbornCardProps) {
+  const { addCareLog } = useAppStore();
+  const [feedingTimes, setFeedingTimes] = useState(0);
+  const [weight, setWeight] = useState<string>('');
+  const [temperature, setTemperature] = useState<string>('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const recentLogs = careLogs.slice(0, 7);
+
+  const fatherName = animal.pedigree?.fatherName;
+  const motherName = animal.pedigree?.motherName;
+
+  const handleSave = () => {
+    setSaving(true);
+    const today = new Date().toISOString().split('T')[0];
+    addCareLog({
+      animalId: animal.id,
+      animalName: animal.name,
+      date: today,
+      feedingAmount: parseFloat(weight) || 0,
+      feedingFrequency: feedingTimes,
+      weight: parseFloat(weight) || 0,
+      temperature: temperature ? parseFloat(temperature) : undefined,
+      notes,
+      recordedBy: '管理员',
+    });
+    setFeedingTimes(0);
+    setWeight('');
+    setTemperature('');
+    setNotes('');
+    setTimeout(() => setSaving(false), 500);
+  };
+
+  const getWeightTrend = (idx: number) => {
+    if (idx >= recentLogs.length - 1) return 'stable';
+    const curr = recentLogs[idx]?.weight || 0;
+    const prev = recentLogs[idx + 1]?.weight || 0;
+    if (curr > prev) return 'up';
+    if (curr < prev) return 'down';
+    return 'stable';
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-cream-300 shadow-sm hover:shadow-md transition-all">
+      <div className="flex items-start gap-4 mb-4">
+        <img
+          src={animal.imageUrl}
+          alt={animal.name}
+          className="w-16 h-16 rounded-xl object-cover border-2 border-forest-200"
+        />
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="font-bold text-earth-900 text-lg">{animal.name}</h3>
+            <span className={`badge ${animal.gender === 'male' ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'}`}>
+              {animal.gender === 'male' ? '♂' : '♀'}
+            </span>
+          </div>
+          <p className="text-sm text-earth-600">{animal.speciesName}</p>
+          <p className="text-xs text-earth-500 mt-0.5">
+            {animal.age}岁 · {motherName || '未知母'} × {fatherName || '未知父'}
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-cream-50 rounded-xl p-4 mb-4 border border-cream-200">
+        <h4 className="text-sm font-semibold text-earth-800 mb-3 flex items-center gap-2">
+          <Baby className="w-4 h-4 text-forest-600" />今日打卡
+        </h4>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-earth-600 flex items-center gap-1">
+              <span className="text-base">🍼</span>哺乳次数
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setFeedingTimes(Math.max(0, feedingTimes - 1))}
+                className="w-7 h-7 rounded-full bg-cream-200 hover:bg-cream-300 flex items-center justify-center text-earth-700 transition-colors"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+              <input
+                type="number"
+                value={feedingTimes}
+                onChange={(e) => setFeedingTimes(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-12 text-center text-sm font-medium bg-white border border-cream-300 rounded-md py-1 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+              <button
+                onClick={() => setFeedingTimes(feedingTimes + 1)}
+                className="w-7 h-7 rounded-full bg-cream-200 hover:bg-cream-300 flex items-center justify-center text-earth-700 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-xs text-earth-500 ml-1">次</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-earth-600 flex items-center gap-1">
+              <span className="text-base">⚖️</span>称重
+            </span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                step="0.01"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder={animal.weight.toString()}
+                className="w-24 text-right text-sm bg-white border border-cream-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+              <span className="text-xs text-earth-500">kg</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-earth-600 flex items-center gap-1">
+              <span className="text-base">🌡️</span>体温
+              <span className="text-xs text-earth-400">(可选)</span>
+            </span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                step="0.1"
+                value={temperature}
+                onChange={(e) => setTemperature(e.target.value)}
+                placeholder="—"
+                className="w-24 text-right text-sm bg-white border border-cream-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+              <span className="text-xs text-earth-500">°C</span>
+            </div>
+          </div>
+
+          <div>
+            <span className="text-sm text-earth-600 flex items-center gap-1 mb-1.5">
+              <span className="text-base">📝</span>备注
+            </span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="记录今日观察..."
+              rows={2}
+              className="w-full text-sm bg-white border border-cream-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-forest-400 resize-none"
+            />
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={cn(
+              'w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-all',
+              saving
+                ? 'bg-forest-400 text-white cursor-not-allowed'
+                : 'bg-forest-600 text-white hover:bg-forest-700 active:bg-forest-800'
+            )}
+          >
+            <Save className="w-4 h-4" />
+            {saving ? '已保存 ✓' : '保存今日打卡'}
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-sm font-semibold text-earth-800 mb-2 flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-earth-500" />最近哺育记录
+        </h4>
+        {recentLogs.length === 0 ? (
+          <div className="text-center py-4 text-xs text-earth-400 bg-cream-50 rounded-lg">
+            暂无记录，开始今日打卡吧
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {recentLogs.map((log, idx) => {
+              const trend = getWeightTrend(idx);
+              return (
+                <div
+                  key={log.id}
+                  className="flex items-center justify-between text-xs py-2 px-3 bg-cream-50 rounded-lg hover:bg-cream-100 transition-colors"
+                >
+                  <span className="text-earth-600 font-medium">{log.date.slice(5)}</span>
+                  <div className="flex items-center gap-3 text-earth-500">
+                    <span>🍼 {log.feedingFrequency}</span>
+                    <span className="flex items-center gap-0.5">
+                      ⚖️ {log.weight}
+                      {trend === 'up' && <TrendingUp className="w-3 h-3 text-forest-600" />}
+                      {trend === 'down' && <TrendingDown className="w-3 h-3 text-red-500" />}
+                      {trend === 'stable' && <MinusIcon className="w-3 h-3 text-earth-400" />}
+                    </span>
+                    {log.temperature !== undefined && log.temperature > 0 && (
+                      <span>🌡️ {log.temperature}°</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Feeding() {
-  const { feedFormulas, feedingPlans, feedingRecords, animals, healthRecords, addFeedingRecord } = useAppStore();
+  const {
+    feedFormulas, feedingPlans, feedingRecords, animals, healthRecords,
+    addFeedingRecord, getNewbornAnimals, getAnimalCareLogs
+  } = useAppStore();
   const [recordFormOpen, setRecordFormOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<FeedingPlan | null>(null);
+
+  const newbornAnimals = useMemo(() => getNewbornAnimals(), [getNewbornAnimals]);
 
   const abnormalAnimals = useMemo(() => {
     return animals.filter((a) => ['sick', 'quarantine', 'recovering'].includes(a.healthStatus));
@@ -185,6 +397,32 @@ export default function Feeding() {
           <p className="text-sm text-earth-500 mt-1">管理饲料配方、饲喂计划和投喂记录</p>
         </div>
       </div>
+
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <Baby className="w-5 h-5 text-forest-600" />
+          <h2 className="text-lg font-semibold text-earth-800">幼崽哺育任务</h2>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-forest-100 text-forest-700">
+            {newbornAnimals.length} 只幼崽
+          </span>
+        </div>
+        {newbornAnimals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {newbornAnimals.map((animal) => (
+              <NewbornCard
+                key={animal.id}
+                animal={animal}
+                careLogs={getAnimalCareLogs(animal.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card p-8 text-center text-earth-500">
+            <Baby className="w-10 h-10 text-forest-300 mx-auto mb-2" />
+            <p>暂无新生幼崽需要哺育</p>
+          </div>
+        )}
+      </section>
 
       <section>
         <div className="flex items-center gap-2 mb-4">
