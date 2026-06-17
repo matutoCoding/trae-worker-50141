@@ -1,8 +1,13 @@
+import { useMemo, useState } from 'react';
 import { useAppStore } from '@/store';
 import {
   Heart, Activity, Thermometer, Scale, Calendar, Syringe,
-  Pill, Stethoscope, User, Shield, AlertTriangle, SmilePlus, RefreshCw,
+  Pill, Stethoscope, User, Shield, AlertTriangle, SmilePlus, RefreshCw, Plus, Utensils, Cookie
 } from 'lucide-react';
+import type { Animal, HealthRecord } from '@/types';
+import StatusBadge from '@/components/UI/StatusBadge';
+import Modal from '@/components/UI/Modal';
+import HealthRecordForm from './HealthRecordForm';
 
 const healthStatusConfig = {
   healthy: { label: '健康', icon: SmilePlus, bg: 'bg-forest-50', border: 'border-forest-200', text: 'text-forest-700', iconBg: 'bg-forest-100', iconText: 'text-forest-600' },
@@ -33,16 +38,131 @@ function TableHeader({ children }: { children: React.ReactNode }) {
   return <th className="px-4 py-3 text-left text-xs font-semibold text-earth-700">{children}</th>;
 }
 
+interface AbnormalCardProps {
+  animal: Animal;
+  lastDiagnosis?: HealthRecord['diagnoses'][0];
+  lastRecordDate?: string;
+  followUpDate?: string;
+  hasFeedingPlan?: boolean;
+  feedingPlanTime?: string;
+}
+
+function AbnormalCard({ animal, lastDiagnosis, lastRecordDate, followUpDate, hasFeedingPlan, feedingPlanTime }: AbnormalCardProps) {
+  return (
+    <div className="bg-white rounded-xl p-4 border border-warm-200 shadow-sm hover:shadow-md transition-all">
+      <div className="flex items-start gap-3 mb-3">
+        <img src={animal.imageUrl} alt={animal.name} className="w-14 h-14 rounded-lg object-cover border-2 border-warm-200" />
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="font-semibold text-earth-900">{animal.name}</p>
+            <StatusBadge status={animal.healthStatus as any} />
+          </div>
+          <p className="text-xs text-earth-500">{animal.speciesName} · {animal.enclosureName}</p>
+        </div>
+      </div>
+      {lastDiagnosis && (
+        <div className="bg-warm-50 rounded-lg p-2.5 mb-2 border border-warm-100">
+          <p className="text-xs text-warm-700 font-medium mb-1">最近诊断：{lastDiagnosis.condition}</p>
+          <p className="text-xs text-warm-600">治疗：{lastDiagnosis.treatment}</p>
+          {lastRecordDate && <p className="text-xs text-warm-500 mt-1">记录日期：{lastRecordDate}</p>}
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {followUpDate && (
+          <div className="flex items-center gap-1.5 text-xs text-red-600">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>复诊日期：<span className="font-medium">{followUpDate}</span></span>
+          </div>
+        )}
+        {hasFeedingPlan && (
+          <div className="flex items-center gap-1.5 text-xs text-forest-600 bg-forest-50 rounded-md px-2 py-1">
+            <Cookie className="w-3.5 h-3.5" />
+            <span>饲喂计划提醒：{feedingPlanTime || '今日待关注'}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface FeedingTipProps {
+  record: HealthRecord;
+}
+
+function FeedingTip({ record }: FeedingTipProps) {
+  if (record.overallStatus === '健康' && record.diagnoses.length === 0) return null;
+
+  const hasDigestiveIssue = record.diagnoses.some((d) =>
+    d.condition.includes('消化') || d.condition.includes('肠胃')
+  );
+  const hasRespiratoryIssue = record.diagnoses.some((d) =>
+    d.condition.includes('呼吸') || d.condition.includes('呼吸道')
+  );
+  const isSick = record.diagnoses.length > 0;
+
+  let tip = '';
+  if (hasDigestiveIssue) {
+    tip = '建议调整为易消化饲料，减少粗纤维摄入，少量多餐，注意观察进食情况。';
+  } else if (hasRespiratoryIssue) {
+    tip = '建议增加维生素补充，保持环境温度稳定，确保充足饮水。';
+  } else if (isSick) {
+    tip = '建议适当调整饲喂量，密切观察食欲和饮水情况，如有异常及时联系兽医。';
+  } else if (record.overallStatus === '恢复中') {
+    tip = '恢复期间建议循序渐进恢复正常饲喂量，可适当增加营养补充。';
+  }
+
+  if (!tip) return null;
+
+  return (
+    <div className="mt-3 bg-warm-50 rounded-lg p-3 border border-warm-200">
+      <div className="flex items-start gap-2">
+        <Utensils className="w-4 h-4 text-warm-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs font-medium text-warm-700 mb-0.5">饲喂联动提示</p>
+          <p className="text-xs text-warm-600">{tip}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Health() {
-  const { animals, healthRecords } = useAppStore();
+  const { animals, healthRecords, feedingPlans, addHealthRecord } = useAppStore();
+  const [recordFormOpen, setRecordFormOpen] = useState(false);
 
   const healthCounts = animals.reduce<Record<string, number>>((acc, a) => {
     acc[a.healthStatus] = (acc[a.healthStatus] || 0) + 1;
     return acc;
   }, {});
 
+  const abnormalAnimals = useMemo(() => {
+    return animals.filter((a) => ['sick', 'recovering', 'quarantine'].includes(a.healthStatus));
+  }, [animals]);
+
+  const animalDiagnosisMap = useMemo(() => {
+    const map: Record<string, { diagnosis: HealthRecord['diagnoses'][0]; date: string; followUp: string }> = {};
+    for (const r of healthRecords) {
+      if (r.diagnoses.length > 0 && !map[r.animalId]) {
+        map[r.animalId] = {
+          diagnosis: r.diagnoses[0],
+          date: r.checkupDate,
+          followUp: r.diagnoses[0].followUpDate || '',
+        };
+      }
+    }
+    return map;
+  }, [healthRecords]);
+
+  const animalFeedingMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    feedingPlans.forEach((p) => {
+      if (!map[p.animalId]) map[p.animalId] = p.feedingTime;
+    });
+    return map;
+  }, [feedingPlans]);
+
   const allDiagnoses = healthRecords.flatMap((r) =>
-    r.diagnoses.map((d) => ({ ...d, animalName: r.animalName, veterinarian: r.veterinarian, checkupDate: r.checkupDate, recordId: r.id }))
+    r.diagnoses.map((d) => ({ ...d, animalName: r.animalName, veterinarian: r.veterinarian, checkupDate: r.checkupDate, recordId: r.id, overallStatus: r.overallStatus, diagnoses: r.diagnoses }))
   );
   const allVaccinations = healthRecords.flatMap((r) =>
     r.vaccinations.map((v) => ({ ...v, animalName: r.animalName, recordId: r.id }))
@@ -51,13 +171,26 @@ export default function Health() {
   const statusBadgeClass = (s: string) =>
     s === '健康' ? 'bg-forest-100 text-forest-700' : s === '恢复中' ? 'bg-warm-100 text-warm-700' : 'bg-red-100 text-red-700';
 
+  const handleSubmitRecord = (data: Omit<HealthRecord, 'id'>) => {
+    addHealthRecord(data);
+    setRecordFormOpen(false);
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-earth-900 flex items-center gap-2">
-          <Heart className="w-7 h-7 text-forest-600" />健康监测
-        </h1>
-        <p className="text-sm text-earth-500 mt-1">动物健康状态、体检记录和疫苗接种管理</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-earth-900 flex items-center gap-2">
+            <Heart className="w-7 h-7 text-forest-600" />健康监测
+          </h1>
+          <p className="text-sm text-earth-500 mt-1">动物健康状态、体检记录和疫苗接种管理</p>
+        </div>
+        <button
+          onClick={() => setRecordFormOpen(true)}
+          className="btn-primary flex items-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" />新增体检/诊疗
+        </button>
       </div>
 
       <section>
@@ -70,6 +203,34 @@ export default function Health() {
             <StatusCard key={s} status={s} count={healthCounts[s] || 0} />
           ))}
         </div>
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <AlertTriangle className="w-5 h-5 text-warm-600" />
+          <h2 className="text-lg font-semibold text-earth-800">异常动物快捷区</h2>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-warm-100 text-warm-700">{abnormalAnimals.length} 只需关注</span>
+        </div>
+        {abnormalAnimals.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {abnormalAnimals.map((animal) => (
+              <AbnormalCard
+                key={animal.id}
+                animal={animal}
+                lastDiagnosis={animalDiagnosisMap[animal.id]?.diagnosis}
+                lastRecordDate={animalDiagnosisMap[animal.id]?.date}
+                followUpDate={animalDiagnosisMap[animal.id]?.followUp}
+                hasFeedingPlan={!!animalFeedingMap[animal.id]}
+                feedingPlanTime={animalFeedingMap[animal.id]}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card p-8 text-center text-earth-500">
+            <SmilePlus className="w-10 h-10 text-forest-400 mx-auto mb-2" />
+            <p>所有动物状态良好，无异常情况</p>
+          </div>
+        )}
       </section>
 
       <section>
@@ -146,6 +307,7 @@ export default function Health() {
                           <p className="text-sm font-medium text-warm-800">{d.followUpDate || '待定'}</p>
                         </div>
                       </div>
+                      <FeedingTip record={d as any} />
                     </div>
                   </div>
                 ))}
@@ -180,6 +342,18 @@ export default function Health() {
           </div>
         </div>
       </section>
+
+      <Modal
+        open={recordFormOpen}
+        onClose={() => setRecordFormOpen(false)}
+        title="新增体检/诊疗记录"
+        size="xl"
+      >
+        <HealthRecordForm
+          onSubmit={handleSubmitRecord}
+          onCancel={() => setRecordFormOpen(false)}
+        />
+      </Modal>
     </div>
   );
 }
