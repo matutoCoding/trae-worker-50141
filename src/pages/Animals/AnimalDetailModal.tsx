@@ -1,7 +1,9 @@
 import Modal from '@/components/UI/Modal';
 import { useAppStore } from '@/store';
+import type { TimelineItem } from '@/store';
 import type { Animal } from '@/types';
-import { Scale, Home, Calendar, Shield, PawPrint, Info, Users, Heart } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Scale, Home, Calendar, Shield, PawPrint, Users, Heart, Clock, ChevronRight } from 'lucide-react';
 
 interface AnimalDetailModalProps {
   open: boolean;
@@ -31,11 +33,22 @@ function GenderBadge({ gender }: { gender: 'male' | 'female' }) {
   );
 }
 
+const typeColors: Record<TimelineItem['type'], { dot: string; line: string; badge: string; text: string }> = {
+  feeding: { dot: 'bg-forest-500', line: 'bg-forest-200', badge: 'bg-forest-100 text-forest-700', text: '饲喂' },
+  health: { dot: 'bg-warm-500', line: 'bg-warm-200', badge: 'bg-warm-100 text-warm-700', text: '健康' },
+  breeding: { dot: 'bg-earth-500', line: 'bg-earth-200', badge: 'bg-earth-100 text-earth-700', text: '繁育' },
+  behavior: { dot: 'bg-blue-500', line: 'bg-blue-200', badge: 'bg-blue-100 text-blue-700', text: '行为' },
+};
+
 export default function AnimalDetailModal({ open, onClose, animal, onSelectAnimal }: AnimalDetailModalProps) {
-  const { getAnimalFamilyTree, animals } = useAppStore();
+  const { getAnimalFamilyTree, getAnimalTimeline, animals } = useAppStore();
+  const navigate = useNavigate();
   if (!animal) return null;
 
   const tree = getAnimalFamilyTree(animal.id);
+  const allTimeline = getAnimalTimeline(animal.id);
+  const timeline = allTimeline.slice(0, 10);
+  const hasMore = allTimeline.length > 10;
 
   const partner = (() => {
     if (tree.children.length > 0) {
@@ -115,6 +128,55 @@ export default function AnimalDetailModal({ open, onClose, animal, onSelectAnima
               <span className="text-xs text-gray-400">子女：暂无记录</span>
             )}
           </div>
+        </div>
+
+        <div className="bg-cream-50 rounded-xl p-4 border border-cream-200">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-semibold text-forest-700 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-forest-500" />近期记录时间线
+            </h4>
+            {hasMore && (
+              <button
+                onClick={() => navigate('/feeding')}
+                className="text-xs text-forest-600 hover:text-forest-800 flex items-center gap-1"
+              >
+                查看更多 <ChevronRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          {timeline.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">暂无记录</div>
+          ) : (
+            <div className="relative pl-6">
+              <div className="absolute left-2 top-1 bottom-1 w-0.5 bg-cream-300" />
+              {timeline.map((item) => {
+                const colors = typeColors[item.type];
+                return (
+                  <div key={item.id} className="relative mb-4">
+                    <div className={`absolute -left-6 top-1 w-3 h-3 rounded-full ${colors.dot} ring-2 ring-white z-10`} />
+                    <div className="bg-white rounded-lg p-3 border border-cream-200 hover:shadow-sm transition-shadow">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${colors.badge}`}>{colors.text}</span>
+                            <span className="text-xs text-gray-400">{item.date}</span>
+                          </div>
+                          <h5 className="text-sm font-medium text-gray-800 truncate">{item.title}</h5>
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</p>
+                        </div>
+                        <button
+                          onClick={() => navigate(item.pagePath)}
+                          className="flex-shrink-0 p-1.5 text-forest-500 hover:text-forest-700 hover:bg-forest-50 rounded-md transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </Modal>
