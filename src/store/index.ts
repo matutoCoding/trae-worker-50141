@@ -120,6 +120,7 @@ interface AppState {
   ) => void;
 
   addBehaviorRecord: (record: Omit<BehaviorRecord, 'id'>) => void;
+  addEnrichmentActivity: (activity: Omit<EnrichmentActivity, 'id'>) => void;
 
   addEducationSchedule: (schedule: Omit<EducationSchedule, 'id'>) => void;
   updateEducationSchedule: (id: string, data: Partial<EducationSchedule>) => void;
@@ -161,16 +162,83 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateAnimal: (id, data) => {
-    set((state) => ({
-      animals: state.animals.map((a) => {
+    set((state) => {
+      const old = state.animals.find((a) => a.id === id);
+      if (!old) return state;
+      const nameChanged = data.name !== undefined && data.name !== old.name;
+      const healthChanged = data.healthStatus !== undefined && data.healthStatus !== old.healthStatus;
+      const enclosureChanged = data.enclosureId !== undefined && data.enclosureName !== undefined && (data.enclosureId !== old.enclosureId || data.enclosureName !== old.enclosureName);
+
+      const updatedAnimals = state.animals.map((a) => {
         if (a.id !== id) return a;
         const updated = { ...a, ...data };
         if (data.birthDate) {
           updated.age = calculateAge(data.birthDate);
         }
         return updated;
-      }),
-    }));
+      });
+
+      const newName = data.name || old.name;
+      const newEnclosureName = data.enclosureName || old.enclosureName;
+
+      const updatedFeedingPlans = nameChanged || healthChanged || enclosureChanged
+        ? state.feedingPlans.map((p) => {
+            if (p.animalId !== id) return p;
+            const u: any = { ...p };
+            if (nameChanged) u.animalName = newName;
+            if (enclosureChanged) u.animalEnclosureName = newEnclosureName;
+            return u;
+          })
+        : state.feedingPlans;
+
+      const updatedFeedingRecords = nameChanged
+        ? state.feedingRecords.map((r) =>
+            r.animalId === id ? { ...r, animalName: newName } : r
+          )
+        : state.feedingRecords;
+
+      const updatedHealthRecords = nameChanged
+        ? state.healthRecords.map((r) =>
+            r.animalId === id ? { ...r, animalName: newName } : r
+          )
+        : state.healthRecords;
+
+      const updatedBreedingRecords = nameChanged
+        ? state.breedingRecords.map((r) => {
+            let updated = { ...r };
+            if (r.animalId === id) updated.animalName = newName;
+            if (r.partnerId === id && r.partnerName) updated.partnerName = newName;
+            return updated;
+          })
+        : state.breedingRecords;
+
+      const updatedBehaviorRecords = nameChanged
+        ? state.behaviorRecords.map((r) =>
+            r.animalId === id ? { ...r, animalName: newName } : r
+          )
+        : state.behaviorRecords;
+
+      let result: any = {
+        animals: updatedAnimals,
+        feedingPlans: updatedFeedingPlans,
+        feedingRecords: updatedFeedingRecords,
+        healthRecords: updatedHealthRecords,
+        breedingRecords: updatedBreedingRecords,
+        behaviorRecords: updatedBehaviorRecords,
+      };
+
+      if (healthChanged) {
+        const newStatus = data.healthStatus!;
+        const attentionNote = `[${new Date().toISOString().slice(0, 10)}] 动物健康状态变更为${newStatus}，需特别关注饲喂情况`;
+        result.feedingPlans = result.feedingPlans.map((p: FeedingPlan) => {
+          if (p.animalId !== id) return p;
+          const newNotes = [p.notes, attentionNote].filter(Boolean).join('；');
+          return { ...p, notes: newNotes };
+        });
+      }
+
+      return result;
+    });
   },
 
   deleteAnimal: (id) => {
@@ -239,9 +307,39 @@ export const useAppStore = create<AppState>((set, get) => ({
   addHealthRecord: (recordData) => {
     const id = generateId('h');
     const newRecord: HealthRecord = { ...recordData, id } as HealthRecord;
-    set((state) => ({
-      healthRecords: [...state.healthRecords, newRecord],
-    }));
+    set((state) => {
+      let updatedAnimals = state.animals;
+      let updatedFeedingPlans = state.feedingPlans;
+
+      const statusMap: Record<string, HealthStatus> = {
+        '健康': 'healthy',
+        '恢复中': 'recovering',
+        '治疗中': 'sick',
+        '患病': 'sick',
+        '隔离中': 'quarantine',
+      };
+      const newHealthStatus = statusMap[recordData.overallStatus];
+      if (newHealthStatus) {
+        const animal = state.animals.find((a) => a.id === recordData.animalId);
+        if (animal && animal.healthStatus !== newHealthStatus) {
+          updatedAnimals = state.animals.map((a) =>
+            a.id === recordData.animalId ? { ...a, healthStatus: newHealthStatus } : a
+          );
+          const attentionNote = `[${new Date().toISOString().slice(0, 10)}] 诊疗记录：${recordData.overallStatus}，需特别关注饲喂情况`;
+          updatedFeedingPlans = state.feedingPlans.map((p) => {
+            if (p.animalId !== recordData.animalId) return p;
+            const newNotes = [p.notes, attentionNote].filter(Boolean).join('；');
+            return { ...p, notes: newNotes };
+          });
+        }
+      }
+
+      return {
+        healthRecords: [...state.healthRecords, newRecord],
+        animals: updatedAnimals,
+        feedingPlans: updatedFeedingPlans,
+      };
+    });
   },
 
   updateAnimalHealthStatus: (animalId, status) => {
@@ -263,8 +361,48 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newRecord: BreedingRecord = { ...recordData, id } as BreedingRecord;
     set((state) => {
       let updatedAnimals = state.animals;
+
       if (recordData.offspring && recordData.offspring.length > 0) {
-        updatedAnimals = state.animals.map((a) => {
+        const mother = state.animals.find((a) => a.id === recordData.animalId);
+        const father = recordData.partnerId
+          ? state.animals.find((a) => a.id === recordData.partnerId)
+          : undefined;
+
+        const newAnimalEntries: Animal[] = recordData.offspring.map((off) => ({
+          id: off.id,
+          name: off.name,
+          speciesId: mother?.speciesId || '',
+          speciesName: mother?.speciesName || '',
+          scientificName: mother?.scientificName || '',
+          gender: off.gender as Gender,
+          birthDate: off.birthDate,
+          age: calculateAge(off.birthDate),
+          weight: 0,
+          entryDate: off.birthDate,
+          healthStatus: 'healthy' as HealthStatus,
+          enclosureId: mother?.enclosureId || '',
+          enclosureName: mother?.enclosureName || '',
+          imageUrl: `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=cute%20baby%20${encodeURIComponent(mother?.speciesName || 'animal')}%20newborn%20zoo&image_size=square`,
+          conservationStatus: mother?.conservationStatus || '',
+          dietType: mother?.dietType || '',
+          pedigree: {
+            fatherId: father?.id,
+            fatherName: father?.name,
+            motherId: mother?.id,
+            motherName: mother?.name,
+            childrenIds: [],
+          },
+        }));
+
+        updatedAnimals = [...state.animals];
+
+        for (const newEntry of newAnimalEntries) {
+          if (!updatedAnimals.find((a) => a.id === newEntry.id)) {
+            updatedAnimals = [...updatedAnimals, newEntry];
+          }
+        }
+
+        updatedAnimals = updatedAnimals.map((a) => {
           if (a.id === recordData.animalId) {
             const existingChildren = a.pedigree?.childrenIds || [];
             const newChildrenIds = [
@@ -407,6 +545,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newRecord: BehaviorRecord = { ...recordData, id } as BehaviorRecord;
     set((state) => ({
       behaviorRecords: [...state.behaviorRecords, newRecord],
+    }));
+  },
+
+  addEnrichmentActivity: (activityData) => {
+    const id = generateId('en');
+    const newActivity: EnrichmentActivity = { ...activityData, id } as EnrichmentActivity;
+    set((state) => ({
+      enrichmentActivities: [...state.enrichmentActivities, newActivity],
     }));
   },
 

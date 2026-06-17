@@ -23,7 +23,7 @@ const ic = 'w-full px-3 py-2 rounded-lg border border-cream-300 bg-white text-sm
 const bc = 'px-4 py-2 rounded-lg text-sm font-medium transition-colors';
 
 export default function Behavior() {
-  const { enrichmentActivities, behaviorRecords, animals, getWarnings, addBehaviorRecord } = useAppStore();
+  const { enrichmentActivities, behaviorRecords, animals, getWarnings, addBehaviorRecord, addEnrichmentActivity } = useAppStore();
   const aw = getWarnings();
   const bw = aw.filter(w => w.type === 'stereotypic_high').map(w => {
     const c7 = behaviorRecords.filter(r => r.animalId === w.relatedId && r.behaviorType === 'stereotypic').reduce((s, r) => s + r.frequency, 0);
@@ -37,6 +37,19 @@ export default function Behavior() {
     setFd({ animalId: animals[0]?.id || '', observationDate: '2026-06-18', observer: '', behaviorType: 'normal' as BehaviorType, behaviorName: '', frequency: 1, durationMinutes: 10, severity: '' as Severity | '', enrichmentActivity: '', notes: '', activityName: '', activityType: '食物丰容', targetSpecies: '', description: '' });
   }
   function sr() { const a = animals.find(x => x.id === fd.animalId); if (!a) return; addBehaviorRecord({ animalId: fd.animalId, animalName: a.name, observationDate: fd.observationDate, observer: fd.observer, behaviorType: fd.behaviorType, behaviorName: fd.behaviorName, frequency: Number(fd.frequency), durationMinutes: Number(fd.durationMinutes), severity: fd.severity || undefined, enrichmentActivity: fd.enrichmentActivity || undefined, notes: fd.notes || '' }); setMt(null); }
+  function se() {
+    if (!fd.activityName?.trim()) return;
+    const targetSpecies = fd.targetSpecies ? fd.targetSpecies.split(/[,，、]/).map((s: string) => s.trim()).filter(Boolean) : [];
+    addEnrichmentActivity({
+      name: fd.activityName.trim(),
+      type: fd.activityType || '食物丰容',
+      targetSpecies,
+      description: fd.description || '',
+      lastUsed: new Date().toISOString().slice(0, 10),
+      effectiveness: 70,
+    });
+    setMt(null);
+  }
   function t7(aid: string) { const m: Record<string, number> = {}; d7.forEach(d => m[d] = 0); behaviorRecords.filter(r => r.animalId === aid && r.behaviorType === 'stereotypic').forEach(r => { const d = r.observationDate.slice(5); if (m[d] !== undefined) m[d] += r.frequency; }); return d7.map(d => m[d]); }
 
   return <div className="space-y-6">
@@ -105,7 +118,7 @@ export default function Behavior() {
         <F label="活动描述"><textarea rows={3} placeholder="描述丰容活动的具体实施方式..." value={fd.description || ''} onChange={e => setFd({ ...fd, description: e.target.value })} className={ic} /></F>
       </>}
       <F label="备注"><textarea rows={2} value={fd.notes || ''} onChange={e => setFd({ ...fd, notes: e.target.value })} className={ic} /></F>
-      <button onClick={() => { if (mt === 'rec') sr(); else setMt(null); }} className={`${bc} bg-forest-500 text-white w-full`}>确认{mt === 'rec' ? '添加' : '登记'}</button>
+      <button onClick={() => { if (mt === 'rec') sr(); else se(); }} className={`${bc} bg-forest-500 text-white w-full`}>确认{mt === 'rec' ? '添加' : '登记'}</button>
     </Modal>
   </div>;
 }
